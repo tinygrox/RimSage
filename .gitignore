@@ -6,3 +6,4 @@ dist/
 .codex/
 AGENTS.md
 /sourceCode
+bun.lock

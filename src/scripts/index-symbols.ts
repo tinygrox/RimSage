@@ -1,7 +1,7 @@
 import { runActiveGameCommandIfSupported } from '../profiles'
 
 export async function main() {
-  await runActiveGameCommandIfSupported('clean')
+  await runActiveGameCommandIfSupported('indexSymbols')
 }
 
 if (import.meta.main) {

@@ -1,52 +1,61 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { PathSandbox } from './utils/path-sandbox'
+import { getActiveGameProfile, listGameProfiles } from './games'
 import {
-  searchSource,
-  readFile,
-  listDirectory,
-  getDefDetails,
-  searchDefs,
-  readCsharpSymbol,
+  searchContent,
+  readDocument,
+  listDocuments,
+  getObjectDetails,
+  searchObjects,
+  readSymbol,
 } from './tools'
 
 const name = 'rimsage'
 const version = '0.11.0'
-const sandbox = new PathSandbox('dist/assets')
+const activeProfile = getActiveGameProfile()
+const supportedGames = listGameProfiles()
+const supportedGameIds = supportedGames.map(profile => profile.id)
+const supportedGameList = supportedGameIds.join(', ') || 'none'
 
 function registerToolsAndResources(server: McpServer) {
-  // tool: search
   server.registerTool(
-    'search_source',
+    'search_content',
     {
-      description: 'Search RimWorld source code using regex.',
+      description: 'Search game content using regex.',
       inputSchema: {
+        game: z
+          .string()
+          .optional()
+          .describe(
+            `Optional game id. Defaults to active game '${activeProfile.id}'. Supported: ${supportedGameList}.`,
+          ),
         query: z.string().describe('Regex pattern.'),
         file_pattern: z
           .string()
           .optional()
-          .describe("Glob filter (e.g. '*.cs', 'Defs/**/*.xml')."),
+          .describe('Optional glob filter for the active source/content tree.'),
         case_sensitive: z
           .boolean()
           .default(false)
           .describe('Enforce exact case matching.'),
       },
     },
-    async ({ query, file_pattern, case_sensitive }) =>
-      searchSource(sandbox, query, case_sensitive, file_pattern),
+    async ({ game, query, file_pattern, case_sensitive }) =>
+      searchContent(query, case_sensitive, file_pattern, game),
   )
 
-  // tool: read file
   server.registerTool(
-    'read_file',
+    'read_document',
     {
-      description: 'Read source file.',
+      description: 'Read a document from the selected game asset set.',
       inputSchema: {
-        relative_path: z
+        game: z
           .string()
+          .optional()
           .describe(
-            'Path (e.g. `Source/RimWorld/AbilityDef.cs`, `Defs/Core/AbilityDefs/AbilityDefs.xml`).',
+            `Optional game id. Defaults to active game '${activeProfile.id}'. Supported: ${supportedGameList}.`,
           ),
+        relative_path: z.string().describe('Relative path inside the game asset root.'),
         start_line: z
           .number()
           .int()
@@ -65,20 +74,25 @@ function registerToolsAndResources(server: McpServer) {
           .describe('Max lines to return.'),
       },
     },
-    async ({ relative_path, start_line, line_count }) =>
-      await readFile(sandbox, relative_path, start_line, line_count),
+    async ({ game, relative_path, start_line, line_count }) =>
+      readDocument(relative_path, start_line, line_count, game),
   )
 
-  // tool: list dir
   server.registerTool(
-    'list_directory',
+    'list_documents',
     {
-      description: 'List contents of a directory.',
+      description: 'List directories or files from the selected game asset root.',
       inputSchema: {
+        game: z
+          .string()
+          .optional()
+          .describe(
+            `Optional game id. Defaults to active game '${activeProfile.id}'. Supported: ${supportedGameList}.`,
+          ),
         relative_path: z
           .string()
           .default('')
-          .describe('Path (e.g. `Source/Verse`). Empty for root.'),
+          .describe('Path relative to the game asset root. Empty for root.'),
         limit: z
           .number()
           .int()
@@ -88,42 +102,32 @@ function registerToolsAndResources(server: McpServer) {
           .describe('Max items to return.'),
       },
     },
-    async ({ relative_path, limit }) =>
-      listDirectory(sandbox, relative_path, limit),
+    async ({ game, relative_path, limit }) =>
+      listDocuments(relative_path, limit, game),
   )
 
-  // tool：get def details
   server.registerTool(
-    'get_def_details',
+    'search_objects',
     {
-      description: 'Get XML of a Def.',
+      description: 'Search structured game objects if object data is available.',
       inputSchema: {
-        defName: z.string().describe('Exact defName (e.g. `Gun_Revolver`).'),
-        defType: z
+        game: z
           .string()
           .optional()
-          .describe('Type filter (e.g. `ThingDef`, `JobDef`).'),
-        inheritance: z
-          .enum(['merged', 'raw'])
-          .default('merged')
-          .describe('Return merged inheritance or the raw indexed Def.'),
-      },
-    },
-    async ({ defName, defType, inheritance }) =>
-      getDefDetails(defName, defType, inheritance),
-  )
-
-  // tool: search defs
-  server.registerTool(
-    'search_defs',
-    {
-      description: 'Search Def indices by partial name or label.',
-      inputSchema: {
+          .describe(
+            `Optional game id. Defaults to active game '${activeProfile.id}'. Supported: ${supportedGameList}.`,
+          ),
+        model: z
+          .string()
+          .optional()
+          .describe(
+            `Object model id for the selected game. Active game offers: ${activeProfile.objectModels.map(model => model.id).join(', ') || 'none'}.`,
+          ),
         query: z.string().describe('Case-insensitive keyword.'),
-        defType: z
+        object_type: z
           .string()
           .optional()
-          .describe('Filter by type (e.g. "ThingDef", "JobDef").'),
+          .describe('Optional type/category filter for the selected object model.'),
         limit: z
           .number()
           .int()
@@ -133,29 +137,79 @@ function registerToolsAndResources(server: McpServer) {
           .describe('Max results to return.'),
       },
     },
-    async ({ query, defType, limit }) => searchDefs(query, defType, limit),
+    async ({ game, model, query, object_type, limit }) =>
+      searchObjects(query, model, object_type, limit, game),
   )
 
-  // tool: read csharp symbol
   server.registerTool(
-    'read_csharp_symbol',
+    'get_object_details',
     {
-      description: 'Read a C# type or method definition.',
+      description: 'Read a structured object if object data is available.',
       inputSchema: {
-        typeName: z
+        game: z
           .string()
-          .describe('Exact type name (e.g. "ThingDef", "JobDriver").'),
+          .optional()
+          .describe(
+            `Optional game id. Defaults to active game '${activeProfile.id}'. Supported: ${supportedGameList}.`,
+          ),
+        model: z
+          .string()
+          .optional()
+          .describe(
+            `Object model id for the selected game. Active game offers: ${activeProfile.objectModels.map(model => model.id).join(', ') || 'none'}.`,
+          ),
+        object_id: z.string().describe('Exact object identifier.'),
+        object_type: z
+          .string()
+          .optional()
+          .describe('Optional type/category filter for the selected object model.'),
+        inheritance: z
+          .enum(['merged', 'raw'])
+          .default('merged')
+          .describe('Return resolved/merged content or the raw indexed content.'),
+      },
+    },
+    async ({ game, model, object_id, object_type, inheritance }) =>
+      getObjectDetails(object_id, model, object_type, inheritance, game),
+  )
+
+  server.registerTool(
+    'read_symbol',
+    {
+      description: 'Read a code symbol from the available source index.',
+      inputSchema: {
+        game: z
+          .string()
+          .optional()
+          .describe(
+            `Optional game id. Defaults to active game '${activeProfile.id}'. Supported: ${supportedGameList}.`,
+          ),
+        language: z
+          .string()
+          .default(activeProfile.symbolLanguages[0] ?? 'csharp')
+          .describe(
+            `Language identifier for the selected game. Active game offers: ${activeProfile.symbolLanguages.join(', ') || 'none'}.`,
+          ),
+        typeName: z.string().describe('Exact type, symbol, or container name.'),
         memberName: z
           .string()
           .optional()
-          .describe('Optional method name within the type (e.g. "ExposeData", "ConfigErrors").'),
+          .describe('Optional member name within the symbol container.'),
       },
     },
-    async ({ typeName, memberName }) =>
-      await readCsharpSymbol(typeName, memberName),
+    async ({ game, language, typeName, memberName }) =>
+      readSymbol(typeName, memberName, language, game),
   )
 
-  // resource: manifest (minimal resources support for clients that probe resources/*)
+  const genericTools = [
+    'search_content',
+    'read_document',
+    'list_documents',
+    'search_objects',
+    'get_object_details',
+    'read_symbol',
+  ]
+
   server.registerResource(
     'manifest',
     'rimsage://manifest',
@@ -173,15 +227,15 @@ function registerToolsAndResources(server: McpServer) {
             {
               name,
               version,
+              activeGame: activeProfile.id,
+              supportedGames: supportedGames.map(profile => ({
+                id: profile.id,
+                displayName: profile.displayName,
+                objectModels: profile.objectModels.map(model => model.id),
+                symbolLanguages: profile.symbolLanguages,
+              })),
               resources: ['rimsage://manifest'],
-              tools: [
-                'search_source',
-                'read_file',
-                'list_directory',
-                'get_def_details',
-                'search_defs',
-                'read_csharp_symbol',
-              ],
+              tools: genericTools,
             },
             null,
             2,

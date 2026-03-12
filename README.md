@@ -2,113 +2,103 @@
 
 [![bun](https://img.shields.io/badge/Bun-%23000000.svg?style=flat&logo=bun&logoColor=white)](https://bun.com/) [![ripgrep](https://img.shields.io/badge/ripgrep-%23000000.svg?style=flat&logo=rust&logoColor=white)](https://github.com/BurntSushi/ripgrep)
 
-RimSage is an MCP server for searching and browsing game source assets. It now exposes a profile-based core so the server can grow beyond RimWorld while keeping RimWorld compatibility.
+RimSage is an MCP server for searching and browsing game source assets plus optional RimWorld-style Def XML. It imports assets into `dist/games/<gameId>` and builds a SQLite index for fast symbol/object lookup.
 
-## Current Status
+## Current Capabilities
 
-- Active built-in profile: `rimworld`
-- New generic tools: `search_content`, `read_document`, `list_documents`, `search_objects`, `get_object_details`, `read_symbol`
-- Legacy RimWorld tools remain available for backward compatibility
-- Import/index scripts now dispatch through a game adapter registry
-- Non-RimWorld games are expected to store generated data under `dist/games/<gameId>`
+- Multi-game support via `rimsage.config.local.json` / `rimsage.config.json`
+- Active game selected by `RIMSAGE_GAME` (defaults to `rimworld`)
+- Source import + symbol indexing for `csharp`, `java`, `c`, and `cpp`
+- Def XML import + object indexing for RimWorld-style `Data/*/Defs` trees (requires `Version.txt`)
+- Stdio and HTTP transports
+- Manifest resource at `rimsage://manifest`
+- `bun run build` checks config files first, then prompts for missing paths in interactive terminals
 
-## Available Tools
-
-### Generic tools
+## MCP Tools
 
 - `search_content` - Search the active game content with regex
 - `read_document` - Read a specific source/data file
 - `list_documents` - List files and directories in the active asset root
-- `search_objects` - Search structured game objects for the active profile
+- `search_objects` - Search structured game objects for the active game
 - `get_object_details` - Read a structured game object by exact id
 - `read_symbol` - Read a code symbol from a supported language index
 
-### Legacy RimWorld aliases
+The object and symbol tools only return results when their respective imports/indexes exist.
 
-- `search_source` - Alias of `search_content`
-- `read_file` - Alias of `read_document`
-- `list_directory` - Alias of `list_documents`
-- `search_defs` - Alias of `search_objects` with `model=def`
-- `get_def_details` - Alias of `get_object_details` with `model=def`
-- `read_csharp_symbol` - Alias of `read_symbol` with `language=csharp`
+## Game Configuration
 
-## Quick Start
+RimSage no longer relies on fixed profiles. Instead, each configured game id becomes a dynamic profile with capabilities inferred from your inputs and existing data. If a game only has a source path, object import/indexing is skipped. If it has a RimWorld-style data path, Def XML indexing is enabled.
 
-The easiest way to use RimSage is through the online service:
+## Build Config
 
-```
-https://mcp.rimsage.com/mcp
-```
-
-You can find the integration methods for different Agent clients in the [wiki](https://github.com/realloon/RimSage/wiki).
- 
-Most clients support `mcp.json` configuration:
+You can let `bun run build` prompt for missing paths, or provide them manually in `rimsage.config.local.json`. You can also define multiple game ids:
 
 ```json
 {
-  "mcpServers": {
-    "rimsage": {
-      "url": "https://mcp.rimsage.com/mcp"
+  "games": {
+    "sts2": {
+      "sourcePath": "D:/Games/SlayTheSpire2/Decompiled/Source"
+    },
+    "rimworld": {
+      "objectsPath": "D:/Games/RimWorld",
+      "sourcePath": "D:/RimWorldDecompiled"
     }
   }
 }
 ```
 
-## Self-Hosted
+- MCP tool calls can pass `game` to select a configured game id; otherwise the active `RIMSAGE_GAME` id is used.
+- `bun run build --config <path>` can target a non-default config file.
 
-RimSage supports stdio transport for local deployment.
+## Workflow
 
-1. Clone the repository
-
-```sh
-git clone https://github.com/realloon/RimSage.git
-```
-
-2. Install dependencies
+1. Install dependencies
 
 ```sh
 bun install
 ```
 
-3. Import and build the active game profile
-
-```sh
-bun run import:objects /path/to/game/data
-bun run import:symbols /path/to/decompiled/or/source/root
-bun run build
-```
-
-For RimWorld, these commands map to Def XML import plus decompiled C# indexing. You'll need local RimWorld files and a decompiled C# project, which is allowed under the [RimWorld EULA](https://rimworldgame.com/eula).
-
-4. Add this MCP server
-
-Most Agent clients support `mcp.json` configuration:
-
-```json
-{
-  "mcpServers": {
-    "rimsage": {
-      "command": "bun",
-      "args": ["run", "/path/to/this/repo"]
-    }
-  }
-}
-```
-
-### Profile selection
-
-By default the server loads the `rimworld` profile.
+2. Select a game id
 
 ```sh
 RIMSAGE_GAME=rimworld bun run start
+RIMSAGE_GAME=sts2 bun run start
 ```
 
-## Development
+3. Build the active game
 
 ```sh
-bun run start # stdio
-bun run start:http # Streamable HTTP
-bun run clean
+bun run build
+```
+
+4. Run focused commands if needed
+
+```sh
+bun run import:objects /path/to/game/data
+bun run import:symbols /path/to/source/root
 bun run index:objects
 bun run index:symbols
 ```
+
+### Example: source-only Java / C / C++ / C# game
+
+```sh
+RIMSAGE_GAME=generic-source bun run build
+RIMSAGE_GAME=generic-source bun run start
+```
+
+If no config file exists, `bun run build` prompts for missing paths and saves them to `rimsage.config.local.json`.
+
+## Server Transports
+
+- `bun run start` - MCP over stdio (default)
+- `bun run start:http` - MCP over HTTP (`/mcp`, `/health`)
+
+## Storage Layout
+
+Generated data is stored under `dist/games/<gameId>`:
+
+- `assets/Defs` - Imported Def XML (RimWorld-style)
+- `assets/Source` - Imported source files
+- `index.db` - Symbol and object indexes
+- `Version.txt` - Copied from RimWorld data roots when present

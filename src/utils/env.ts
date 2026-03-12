@@ -1,9 +1,47 @@
+import { existsSync } from 'node:fs'
 import { join } from 'path'
 
 export const root = join(import.meta.dir, '../../')
+export const activeGameId = process.env.RIMSAGE_GAME?.trim().toLowerCase() || 'rimworld'
 const distPath = join(root, 'dist')
 
-export const versionPath = join(distPath, 'Version.txt')
-export const defsPath = join(distPath, 'assets/Defs')
-export const sourcePath = join(distPath, 'assets/Source')
-export const indexDbPath = join(distPath, 'index.db')
+function normalizeGameId(gameId: string): string {
+  return gameId.trim().toLowerCase()
+}
+
+export function getGameDistPath(gameId: string = activeGameId): string {
+  return join(distPath, 'games', normalizeGameId(gameId))
+}
+
+export function getGameAssetsPath(gameId: string = activeGameId): string {
+  return join(getGameDistPath(gameId), 'assets')
+}
+
+export function getGameVersionPath(gameId: string = activeGameId): string {
+  return join(getGameDistPath(gameId), 'Version.txt')
+}
+
+export function getGameDefsPath(gameId: string = activeGameId): string {
+  return join(getGameAssetsPath(gameId), 'Defs')
+}
+
+export function getGameSourcePath(gameId: string = activeGameId): string {
+  return join(getGameAssetsPath(gameId), 'Source')
+}
+
+export function getGameIndexDbPath(gameId: string = activeGameId): string {
+  return join(getGameDistPath(gameId), 'index.db')
+}
+
+export function hasGameStorage(gameId: string = activeGameId): boolean {
+  return (
+    existsSync(getGameAssetsPath(gameId)) ||
+    existsSync(getGameIndexDbPath(gameId)) ||
+    existsSync(getGameVersionPath(gameId))
+  )
+}
+
+export const versionPath = getGameVersionPath()
+export const defsPath = getGameDefsPath()
+export const sourcePath = getGameSourcePath()
+export const indexDbPath = getGameIndexDbPath()

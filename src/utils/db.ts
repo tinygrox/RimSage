@@ -1,40 +1,62 @@
 import { Database } from 'bun:sqlite'
-import { indexDbPath } from './env'
+import { activeGameId, getGameIndexDbPath } from './env'
 
-export interface CSharpIndexRow {
-  typeName: string
+export interface SourceSymbolIndexRow {
+  language: string
+  symbolName: string
+  symbolKind: string
   filePath: string
   startLine: number
-  typeKind: string // 'class' | 'struct' | 'interface' | 'enum'
 }
 
-export interface DefsRow {
-  defName: string
-  defType: string
-  label: string | null
+export interface IndexedObjectRow {
+  objectModel: string
+  objectId: string
+  objectType: string | null
+  displayName: string | null
+  payloadFormat: 'xml' | 'json' | 'text'
   rawPayload: string
-  mergedPayload: string
+  resolvedPayload: string
 }
 
-let _runtimeDb: Database | null = null
+const runtimeDbs = new Map<string, Database>()
 
-export function getDb(): Database {
-  if (!_runtimeDb) {
-    _runtimeDb = new Database(indexDbPath, { readonly: true })
+function normalizeGameId(gameId?: string): string {
+  return (gameId ?? activeGameId).trim().toLowerCase()
+}
+
+export function getDb(gameId?: string): Database {
+  const normalized = normalizeGameId(gameId)
+  const existing = runtimeDbs.get(normalized)
+  if (existing) {
+    return existing
   }
 
-  return _runtimeDb
+  const db = new Database(getGameIndexDbPath(normalized), { readonly: true })
+  runtimeDbs.set(normalized, db)
+  return db
 }
 
-export function closeDb(): void {
-  if (_runtimeDb) {
-    _runtimeDb.close()
-    _runtimeDb = null
+export function closeDb(gameId?: string): void {
+  if (gameId) {
+    const normalized = normalizeGameId(gameId)
+    const db = runtimeDbs.get(normalized)
+    if (db) {
+      db.close()
+      runtimeDbs.delete(normalized)
+    }
+    return
   }
+
+  for (const db of runtimeDbs.values()) {
+    db.close()
+  }
+  runtimeDbs.clear()
 }
 
-export function createBuilderDb(): Database {
-  const db = new Database(indexDbPath, { create: true })
+export function createBuilderDb(gameId?: string): Database {
+  const normalized = normalizeGameId(gameId)
+  const db = new Database(getGameIndexDbPath(normalized), { create: true })
 
   db.run('PRAGMA journal_mode = WAL;')
   db.run('PRAGMA synchronous = NORMAL;')
