@@ -58,11 +58,11 @@ You can let `bun run build` prompt for missing paths, or provide them manually i
 bun install
 ```
 
-2. Select a game id
+2. Select a game id(powershell)
 
-```sh
-RIMSAGE_GAME=rimworld bun run start
-RIMSAGE_GAME=sts2 bun run start
+```powershell
+$env:RIMSAGE_GAME="rimworld" bun run start
+$env:RIMSAGE_GAME="sts2" bun run start
 ```
 
 3. Build the active game

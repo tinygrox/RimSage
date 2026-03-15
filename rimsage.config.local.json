@@ -1,0 +1,14 @@
+{
+  "games": {
+    "rimworld": {
+      "objectsPath": "G:/RimWorldMods/RimWorld",
+      "sourcePath": "G:/RimWorldMods/Rimworld_De"
+    },
+    "sts2":{
+      "sourcePath": "G:/OtherGameMods/SlayTheSpire2Mods/DecompliedCode"
+    },
+    "ksp":{
+      "sourcePath": "G:/Kerbal Mods/KSPDecompliedCode"
+    }
+  }
+}
