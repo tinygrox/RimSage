@@ -34,7 +34,7 @@ class DefObjectResolver {
 
     try {
       const parentResolved = this.resolveByName(object['@_ParentName'], new Set())
-      const merged = mergeNodes(stripParentMeta(parentResolved), object) as RimworldObject
+      const merged = mergeNodes(stripParentMeta(parentResolved), object) as DefObject
       return sortObjectKeys(merged)
     } catch (error: any) {
       console.warn(

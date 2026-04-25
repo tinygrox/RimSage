@@ -2,11 +2,14 @@ import { argv } from 'bun'
 import { existsSync } from 'node:fs'
 import { stdin as input, stdout as output } from 'node:process'
 import { createInterface } from 'node:readline/promises'
+import { getGameProfile } from '../games'
 import { getActiveGameAdapter, runActiveGameCommandIfSupported } from '../profiles'
-import { getGameDefsPath, getGameSourcePath } from '../utils/env'
+import { getGameDefsPath, getGameObjectModelPath, getGameSourcePath } from '../utils/env'
 import {
   getDefaultBuildConfigPath,
   getGameBuildConfig,
+  getGameObjectBuildConfigs,
+  getGameSourceBuildConfig,
   loadBuildConfig,
   saveGameBuildConfig,
   type GameBuildConfig,
@@ -22,7 +25,12 @@ function getConfigArg(): string | undefined {
 }
 
 function hasImportedObjects(gameId: string): boolean {
-  return existsSync(getGameDefsPath(gameId))
+  return (
+    existsSync(getGameDefsPath(gameId)) ||
+    getGameProfile(gameId).objectModels.some(model =>
+      existsSync(getGameObjectModelPath(gameId, model.id)),
+    )
+  )
 }
 
 function hasImportedSymbols(gameId: string): boolean {
@@ -96,14 +104,16 @@ export async function main() {
   const configArg = getConfigArg()
   const loaded = await loadBuildConfig(configArg)
   let gameConfig = getGameBuildConfig(loaded.config, adapter.profile.id)
+  let sourceConfig = getGameSourceBuildConfig(gameConfig)
+  let objectConfigs = getGameObjectBuildConfigs(gameConfig, adapter.profile.id)
 
   const needsObjectsPath =
     adapter.supports.objectImport &&
-    !gameConfig.objectsPath &&
+    !objectConfigs.some(config => Boolean(config.path?.trim())) &&
     !hasImportedObjects(adapter.profile.id)
   const needsSourcePath =
     adapter.supports.symbolImport &&
-    !gameConfig.sourcePath &&
+    !sourceConfig.path &&
     !hasImportedSymbols(adapter.profile.id)
 
   gameConfig = await promptForMissingBuildConfig(
@@ -113,13 +123,16 @@ export async function main() {
     needsSourcePath,
     configArg,
   )
+  sourceConfig = getGameSourceBuildConfig(gameConfig)
+  objectConfigs = getGameObjectBuildConfigs(gameConfig, adapter.profile.id)
 
-  if (gameConfig.objectsPath) {
-    await runActiveGameCommandIfSupported('importObjects', gameConfig.objectsPath)
+  const firstObjectPath = objectConfigs.find(config => config.path)?.path
+  if (firstObjectPath) {
+    await runActiveGameCommandIfSupported('importObjects', firstObjectPath)
   }
 
-  if (gameConfig.sourcePath) {
-    await runActiveGameCommandIfSupported('importSymbols', gameConfig.sourcePath)
+  if (sourceConfig.path) {
+    await runActiveGameCommandIfSupported('importSymbols', sourceConfig.path)
   }
 
   await runActiveGameCommandIfSupported('clean')

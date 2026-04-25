@@ -7,7 +7,7 @@ export const parser = new XMLParser({
     if (isAttribute) return false
     if (tag === 'li') return true
 
-    const parts = path.split('.')
+    const parts = String(path).split('.')
     return parts.length === 2 && parts.at(0) === 'Defs'
   },
 })

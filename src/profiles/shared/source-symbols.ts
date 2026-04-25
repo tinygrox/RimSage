@@ -6,8 +6,10 @@ import { Database } from 'bun:sqlite'
 import { getGameIndexDbPath, getGameSourcePath } from '../../utils/env'
 import { type SqlNamedParams } from '../../types'
 
+export type SourceLanguage = 'csharp' | 'java' | 'c' | 'cpp'
+
 interface SourceLanguageDefinition {
-  language: 'csharp' | 'java' | 'c' | 'cpp'
+  language: SourceLanguage
   extensions: string[]
   symbolPatterns: Array<{
     kind:
@@ -19,6 +21,7 @@ interface SourceLanguageDefinition {
       | 'function'
     regex: RegExp
     groupIndex?: number
+    kindGroupIndex?: number
   }>
 }
 
@@ -28,9 +31,17 @@ interface SymbolIndexInsertRow {
   $symbolKind: string
   $filePath: string
   $startLine: number
+  $declaration: string
+  $namespaceName: string | null
+  $baseTypes: string | null
 }
 
 type SymbolIndexInsertParams = SqlNamedParams & SymbolIndexInsertRow
+
+export interface SourceImportOptions {
+  languages?: string[]
+  extensions?: string[]
+}
 
 const languageDefinitions: SourceLanguageDefinition[] = [
   {
@@ -40,8 +51,9 @@ const languageDefinitions: SourceLanguageDefinition[] = [
       {
         kind: 'class',
         regex:
-          /^\s*(?:public|private|protected|internal|abstract|sealed|static|partial|readonly|unsafe|\s)*\s+(class|struct|interface|enum)\s+([a-zA-Z0-9_]+)/,
+          /^\s*(?:public|private|protected|internal|abstract|sealed|static|partial|readonly|unsafe|\s)*\s+(class|struct|interface|enum|record)\s+([a-zA-Z0-9_]+)/,
         groupIndex: 2,
+        kindGroupIndex: 1,
       },
     ],
   },
@@ -54,6 +66,7 @@ const languageDefinitions: SourceLanguageDefinition[] = [
         regex:
           /^\s*(?:public|protected|private|abstract|static|final|sealed|non-sealed|strictfp|\s)*\s+(class|interface|enum|record)\s+([a-zA-Z0-9_]+)/,
         groupIndex: 2,
+        kindGroupIndex: 1,
       },
     ],
   },
@@ -65,6 +78,7 @@ const languageDefinitions: SourceLanguageDefinition[] = [
         kind: 'struct',
         regex: /^\s*(?:typedef\s+)?(struct|enum)\s+([a-zA-Z_][a-zA-Z0-9_]*)/,
         groupIndex: 2,
+        kindGroupIndex: 1,
       },
       {
         kind: 'function',
@@ -83,6 +97,7 @@ const languageDefinitions: SourceLanguageDefinition[] = [
         regex:
           /^\s*(?:template\s*<[^>]+>\s*)?(class|struct|enum)\s+([a-zA-Z_][a-zA-Z0-9_]*)/,
         groupIndex: 2,
+        kindGroupIndex: 1,
       },
       {
         kind: 'function',
@@ -106,16 +121,25 @@ export function listSupportedSourceExtensions(): string[] {
   return supportedExtensions
 }
 
-export async function importSourceFiles(gameId: string, rootPath: string) {
+export function listSupportedSourceLanguages(): string[] {
+  return languageDefinitions.map(definition => definition.language)
+}
+
+export async function importSourceFiles(
+  gameId: string,
+  rootPath: string,
+  options: SourceImportOptions = {},
+) {
   console.log(`Importing source files for '${gameId}'...`)
 
   const sourcePath = getGameSourcePath(gameId)
   const root = resolve(rootPath)
   const glob = new Glob('**/*')
+  const importExtensions = getImportExtensions(options)
 
   for await (const relativePath of glob.scan({ cwd: root, onlyFiles: true })) {
     const extension = extname(relativePath).toLowerCase()
-    if (!supportedExtensions.includes(extension)) {
+    if (!importExtensions.includes(extension)) {
       continue
     }
 
@@ -136,6 +160,32 @@ export async function importSourceFiles(gameId: string, rootPath: string) {
   console.log('Done!')
 }
 
+function getImportExtensions(options: SourceImportOptions): string[] {
+  const configuredExtensions = options.extensions?.map(extension =>
+    extension.startsWith('.') ? extension.toLowerCase() : `.${extension.toLowerCase()}`,
+  )
+
+  if (configuredExtensions && configuredExtensions.length > 0) {
+    return configuredExtensions
+  }
+
+  const configuredLanguages = options.languages?.map(language =>
+    language.trim().toLowerCase(),
+  )
+
+  if (!configuredLanguages || configuredLanguages.length === 0) {
+    return supportedExtensions
+  }
+
+  return Array.from(
+    new Set(
+      languageDefinitions
+        .filter(definition => configuredLanguages.includes(definition.language))
+        .flatMap(definition => definition.extensions),
+    ),
+  )
+}
+
 export async function indexSourceSymbols(gameId: string) {
   const sourcePath = getGameSourcePath(gameId)
   const indexDbPath = getGameIndexDbPath(gameId)
@@ -152,13 +202,17 @@ export async function indexSourceSymbols(gameId: string) {
   const db = new Database(indexDbPath, { create: true })
 
   try {
+    db.run('DROP TABLE IF EXISTS source_symbol_index;')
     db.run(`
-      CREATE TABLE IF NOT EXISTS source_symbol_index (
+      CREATE TABLE source_symbol_index (
         language TEXT,
         symbolName TEXT,
         symbolKind TEXT,
         filePath TEXT,
         startLine INTEGER,
+        declaration TEXT,
+        namespaceName TEXT,
+        baseTypes TEXT,
         PRIMARY KEY (language, symbolName, filePath, startLine)
       );
     `)
@@ -175,8 +229,26 @@ export async function indexSourceSymbols(gameId: string) {
     `)
 
     const symbolInsert = db.prepare<unknown, SymbolIndexInsertParams>(`
-      INSERT OR REPLACE INTO source_symbol_index (language, symbolName, symbolKind, filePath, startLine)
-      VALUES ($language, $symbolName, $symbolKind, $filePath, $startLine)
+      INSERT OR REPLACE INTO source_symbol_index (
+        language,
+        symbolName,
+        symbolKind,
+        filePath,
+        startLine,
+        declaration,
+        namespaceName,
+        baseTypes
+      )
+      VALUES (
+        $language,
+        $symbolName,
+        $symbolKind,
+        $filePath,
+        $startLine,
+        $declaration,
+        $namespaceName,
+        $baseTypes
+      )
     `)
 
     const csharpInsert = db.prepare(`
@@ -212,6 +284,7 @@ export async function indexSourceSymbols(gameId: string) {
         const content = await file(absolutePath).text()
         const lines = content.split(/\r?\n/)
         const normalizedPath = relativePath.replaceAll('\\', '/')
+        const namespaceByLine = getNamespaceByLine(lines)
 
         for (const definition of matchedLanguages) {
           lines.forEach((line, index) => {
@@ -225,25 +298,34 @@ export async function indexSourceSymbols(gameId: string) {
               if (!symbolName) {
                 continue
               }
+              const symbolKind = normalizeSymbolKind(
+                match[pattern.kindGroupIndex ?? -1] ?? pattern.kind,
+              )
+              const metadata = getSymbolMetadata(line, symbolName)
 
               symbolBatch.push({
                 $language: definition.language,
                 $symbolName: symbolName,
-                $symbolKind: pattern.kind,
+                $symbolKind: symbolKind,
                 $filePath: normalizedPath,
                 $startLine: index,
+                $declaration: line.trim(),
+                $namespaceName: namespaceByLine[index] ?? null,
+                $baseTypes: metadata.baseTypes.length > 0
+                  ? metadata.baseTypes.join(',')
+                  : null,
               })
               symbolCount++
 
               if (
                 definition.language === 'csharp' &&
-                ['class', 'struct', 'interface', 'enum'].includes(pattern.kind)
+                ['class', 'struct', 'interface', 'enum', 'record'].includes(symbolKind)
               ) {
                 csharpBatch.push({
                   $typeName: symbolName,
                   $filePath: normalizedPath,
                   $startLine: index,
-                  $typeKind: pattern.kind,
+                  $typeKind: symbolKind,
                 })
               }
 
@@ -273,6 +355,60 @@ export async function indexSourceSymbols(gameId: string) {
   } finally {
     db.close()
   }
+}
+
+function normalizeSymbolKind(kind: string): SymbolIndexInsertRow['$symbolKind'] {
+  return kind.trim().toLowerCase()
+}
+
+function getNamespaceByLine(lines: string[]): Array<string | null> {
+  const namespaces: Array<string | null> = []
+  let current: string | null = null
+
+  lines.forEach((line, index) => {
+    const packageMatch = line.match(/^\s*package\s+([a-zA-Z0-9_.]+)\s*;/)
+    const namespaceMatch = line.match(/^\s*namespace\s+([a-zA-Z0-9_.]+)\s*[;{]?/)
+
+    if (packageMatch?.[1]) {
+      current = packageMatch[1]
+    } else if (namespaceMatch?.[1]) {
+      current = namespaceMatch[1]
+    }
+
+    namespaces[index] = current
+  })
+
+  return namespaces
+}
+
+function getSymbolMetadata(
+  declaration: string,
+  symbolName: string,
+): { baseTypes: string[] } {
+  const escaped = escapeRegExp(symbolName)
+  const typeMatch = declaration.match(
+    new RegExp(`\\b${escaped}\\b(?:\\s*\\([^)]*\\))?\\s*:\\s*([^\\{;]+)`),
+  )
+  const javaExtends = declaration.match(/\bextends\s+([a-zA-Z0-9_.$<>]+)/)
+  const javaImplements = declaration.match(/\bimplements\s+([^{]+)/)
+  const rawBaseTypes = [
+    ...(typeMatch?.[1]?.split(',') ?? []),
+    javaExtends?.[1] ?? '',
+    ...(javaImplements?.[1]?.split(',') ?? []),
+  ]
+
+  return {
+    baseTypes: rawBaseTypes
+      .map(value => value.trim())
+      .map(value => value.replace(/\s+where\s+.+$/, ''))
+      .map(value => value.replace(/[<{(].*$/, ''))
+      .map(value => value.split('.').at(-1) ?? value)
+      .filter(Boolean),
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 export async function cleanGameIndex(gameId: string) {

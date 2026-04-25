@@ -6,13 +6,15 @@
   "scripts": {
     "start": "bun run src/stdio.ts",
     "start:http": "bun run src/http.ts",
+    "mcporter:list": "npx mcporter list rimsage --config ./config/mcporter.json",
+    "mcporter:generate": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/generate-mcporter-cli.ps1",
     "clean": "bun run src/scripts/clean-db.ts",
     "import:objects": "bun run src/scripts/import-objects.ts",
     "import:symbols": "bun run src/scripts/import-symbols.ts",
     "index:objects": "bun run src/scripts/index-objects.ts",
     "index:symbols": "bun run src/scripts/index-symbols.ts",
     "build": "bun run src/scripts/build.ts",
-    "typecheck": "bunx tsc --noEmit --target ESNext --module Preserve --erasableSyntaxOnly $(rg --files src test -g '*.ts')"
+    "typecheck": "bunx tsc --noEmit --skipLibCheck --target ESNext --module Preserve --erasableSyntaxOnly $(rg --files src test -g '*.ts')"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

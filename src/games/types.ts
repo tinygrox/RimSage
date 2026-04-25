@@ -1,3 +1,5 @@
+import { type ObjectImportKind } from '../utils/build-config'
+
 export interface GameObjectModel {
   id: string
   singularName: string
@@ -6,6 +8,7 @@ export interface GameObjectModel {
   typeFieldName?: string
   idFieldName: string
   displayFieldName?: string
+  importKind?: ObjectImportKind
 }
 
 export interface GameProfile {

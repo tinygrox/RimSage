@@ -7,6 +7,9 @@ export interface SourceSymbolIndexRow {
   symbolKind: string
   filePath: string
   startLine: number
+  declaration?: string | null
+  namespaceName?: string | null
+  baseTypes?: string | null
 }
 
 export interface IndexedObjectRow {

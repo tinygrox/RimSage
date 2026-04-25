@@ -1,11 +1,17 @@
 import { readdir } from 'fs/promises'
+import { join } from 'path'
 import { PathSandbox } from '../utils/path-sandbox'
 import { textResponse } from '../utils/mcp-response'
 
+export interface DirectoryEntry {
+  name: string
+  type: 'directory' | 'file'
+  path: string
+}
+
 export interface ListDirectoryResult {
-  items: string[]
+  entries: DirectoryEntry[]
   total: number
-  shown: number
 }
 
 export async function listDirectoryImpl(
@@ -14,16 +20,26 @@ export async function listDirectoryImpl(
   limit: number = 100,
 ): Promise<ListDirectoryResult> {
   const fullPath = sandbox.validateAndResolve(relativePath)
-  const files = (await readdir(fullPath, { withFileTypes: true }))
-    .map(dirent => `${dirent.isDirectory() ? '[DIR]' : '[FILE]'} ${dirent.name}`)
-    .sort((left, right) => left.localeCompare(right))
+  const entries = (await readdir(fullPath, { withFileTypes: true }))
+    .filter(dirent => !dirent.name.startsWith('.'))
+    .map(dirent => ({
+      name: dirent.name,
+      type: dirent.isDirectory() ? 'directory' as const : 'file' as const,
+      path: relativePath ? join(relativePath, dirent.name) : dirent.name,
+    }))
+    .sort((left, right) => {
+      if (left.type !== right.type) {
+        return left.type === 'directory' ? -1 : 1
+      }
 
-  const slicedFiles = files.slice(0, limit)
+      return left.name.localeCompare(right.name)
+    })
+
+  const slicedEntries = entries.slice(0, limit)
 
   return {
-    items: slicedFiles,
-    total: files.length,
-    shown: slicedFiles.length,
+    entries: slicedEntries,
+    total: entries.length,
   }
 }
 
@@ -39,10 +55,12 @@ export async function listDirectory(
       return textResponse('Directory is empty.')
     }
 
-    let finalOutput = result.items.join('\n')
+    let finalOutput = result.entries
+      .map(entry => (entry.type === 'directory' ? `${entry.name}/` : entry.name))
+      .join('\n')
 
-    if (result.shown < result.total) {
-      finalOutput += `\n\n[TRUNCATED] Showing ${result.shown}/${result.total} items.`
+    if (result.entries.length < result.total) {
+      finalOutput += `\n\n[TRUNCATED] Showing ${result.entries.length}/${result.total} items.`
       finalOutput += '\n(Tip: Increase `limit` or refine the path.)'
     }
 

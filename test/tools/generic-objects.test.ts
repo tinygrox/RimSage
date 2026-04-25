@@ -68,4 +68,31 @@ describe.serial('generic object tools', () => {
       mock.module('../../src/utils/db', () => originalDbModule)
     }
   })
+
+  test('getObjectDetails renders JSON payloads from generic object rows', async () => {
+    mock.module('../../src/utils/db', () => ({
+      ...originalDbModule,
+      getDb: () =>
+        ({
+          query: () => ({
+            all: () => [
+              {
+                objectType: 'elements',
+                payloadFormat: 'json',
+                payload: JSON.stringify({ id: 'lantern', label: 'Lantern' }),
+              },
+            ],
+          }),
+        }) as any,
+    }))
+
+    try {
+      const { getObjectDetails } = await import('../../src/tools/get-object-details')
+      const result = getObjectDetails('lantern', 'def')
+      expect(result.content[0].text).toContain('"id": "lantern"')
+      expect(result.content[0].text).toContain('"label": "Lantern"')
+    } finally {
+      mock.module('../../src/utils/db', () => originalDbModule)
+    }
+  })
 })

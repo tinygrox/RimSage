@@ -1,32 +1,27 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  ensureActiveGame,
   getActiveGameProfile,
   getGameProfile,
   getObjectModel,
   listGameProfiles,
+  resolveGame,
 } from '../../src/games'
 
 describe('games', () => {
-  test('lists built-in profiles', () => {
+  test('lists configured profiles plus the active profile', () => {
     const profiles = listGameProfiles()
-    expect(profiles.length).toBeGreaterThan(1)
+    expect(profiles.length).toBeGreaterThan(0)
     expect(profiles.some(profile => profile.id === 'rimworld')).toBe(true)
-    expect(profiles.some(profile => profile.id === 'generic-source')).toBe(true)
   })
 
   test('returns rimworld as the active default profile', () => {
     const profile = getActiveGameProfile()
     expect(profile.id).toBe('rimworld')
-    expect(profile.symbolLanguages).toContain('csharp')
   })
 
-  test('finds generic-source profile by id', () => {
-    const profile = getGameProfile('GENERIC-SOURCE')
-    expect(profile?.id).toBe('generic-source')
-    expect(profile?.symbolLanguages).toEqual(
-      expect.arrayContaining(['csharp', 'java', 'c', 'cpp']),
-    )
+  test('normalizes dynamic profile ids', () => {
+    const profile = getGameProfile('KSP')
+    expect(profile.id).toBe('ksp')
   })
 
   test('resolves default object model for rimworld', () => {
@@ -34,16 +29,16 @@ describe('games', () => {
     expect(getObjectModel(profile)?.id).toBe('def')
   })
 
-  test('returns no object model for source-only profile', () => {
-    const profile = getGameProfile('generic-source')!
-    expect(getObjectModel(profile)).toBeUndefined()
+  test('exposes the KSP ConfigNode object model for ksp', () => {
+    const profile = getGameProfile('ksp')!
+    expect(getObjectModel(profile, 'ksp_config')?.id).toBe('ksp_config')
   })
 
-  test('rejects mismatched game requests', () => {
-    const result = ensureActiveGame('factorio')
+  test('rejects unknown explicit game requests', () => {
+    const result = resolveGame('factorio')
     expect(result.ok).toBe(false)
     if (!result.ok) {
-      expect(result.response.content[0].text).toContain("Requested game 'factorio' is not active")
+      expect(result.response.content[0].text).toContain("Unknown game 'factorio'")
     }
   })
 })

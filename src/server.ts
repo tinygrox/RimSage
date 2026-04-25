@@ -8,6 +8,7 @@ import {
   getObjectDetails,
   searchObjects,
   readSymbol,
+  searchSymbols,
 } from './tools'
 
 const name = 'rimsage'
@@ -174,6 +175,49 @@ function registerToolsAndResources(server: McpServer) {
   )
 
   server.registerTool(
+    'search_symbols',
+    {
+      description: 'Search indexed code symbols by name, kind, base type, or file path.',
+      inputSchema: {
+        game: z
+          .string()
+          .optional()
+          .describe(
+            `Optional game id. Defaults to active game '${activeProfile.id}'. Supported: ${supportedGameList}.`,
+          ),
+        query: z.string().describe('Case-insensitive symbol name keyword.'),
+        language: z
+          .string()
+          .optional()
+          .describe(
+            `Optional language filter. Active game offers: ${activeProfile.symbolLanguages.join(', ') || 'none'}.`,
+          ),
+        symbol_kind: z
+          .string()
+          .optional()
+          .describe('Optional symbol kind filter, e.g. class, struct, interface, enum, record, function.'),
+        base_type: z
+          .string()
+          .optional()
+          .describe('Optional base class or interface keyword, available after rebuilding the symbol index.'),
+        file_pattern: z
+          .string()
+          .optional()
+          .describe('Optional file path keyword filter inside the imported source tree.'),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .default(20)
+          .describe('Max results to return.'),
+      },
+    },
+    async ({ game, query, language, symbol_kind, base_type, file_pattern, limit }) =>
+      searchSymbols(query, language, symbol_kind, base_type, file_pattern, limit, game),
+  )
+
+  server.registerTool(
     'read_symbol',
     {
       description: 'Read a code symbol from the available source index.',
@@ -207,6 +251,7 @@ function registerToolsAndResources(server: McpServer) {
     'list_documents',
     'search_objects',
     'get_object_details',
+    'search_symbols',
     'read_symbol',
   ]
 

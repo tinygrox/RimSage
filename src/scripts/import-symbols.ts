@@ -4,7 +4,11 @@ import {
   runActiveGameCommandIfSupported,
   supportsActiveGameCommand,
 } from '../profiles'
-import { getGameBuildConfig, loadBuildConfig } from '../utils/build-config'
+import {
+  getGameBuildConfig,
+  getGameSourceBuildConfig,
+  loadBuildConfig,
+} from '../utils/build-config'
 
 const commandName = 'importSymbols'
 
@@ -19,7 +23,8 @@ export async function main() {
 
   if (!sourcePath) {
     const loaded = await loadBuildConfig()
-    sourcePath = getGameBuildConfig(loaded.config, adapter.profile.id).sourcePath
+    const gameConfig = getGameBuildConfig(loaded.config, adapter.profile.id)
+    sourcePath = getGameSourceBuildConfig(gameConfig).path
   }
 
   if (!sourcePath) {

@@ -84,7 +84,7 @@ export function searchObjects(
     }
 
     return textResponse(
-      `No object data configured for '${resolved.gameId}'. Set 'objectsPath' if you want structured object search.`,
+      `No object data configured for '${resolved.gameId}'. Set 'objects' or 'objectsPath' if you want structured object search.`,
     )
   }
 

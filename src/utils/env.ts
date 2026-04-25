@@ -25,6 +25,14 @@ export function getGameDefsPath(gameId: string = activeGameId): string {
   return join(getGameAssetsPath(gameId), 'Defs')
 }
 
+export function getGameObjectsPath(gameId: string = activeGameId): string {
+  return join(getGameAssetsPath(gameId), 'Objects')
+}
+
+export function getGameObjectModelPath(gameId: string, modelId: string): string {
+  return join(getGameObjectsPath(gameId), normalizeGameId(modelId))
+}
+
 export function getGameSourcePath(gameId: string = activeGameId): string {
   return join(getGameAssetsPath(gameId), 'Source')
 }

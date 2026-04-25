@@ -66,7 +66,7 @@ export function getObjectDetails(
     }
 
     return textResponse(
-      `No object data configured for '${resolved.gameId}'. Set 'objectsPath' if you want structured object lookup.`,
+      `No object data configured for '${resolved.gameId}'. Set 'objects' or 'objectsPath' if you want structured object lookup.`,
     )
   }
 

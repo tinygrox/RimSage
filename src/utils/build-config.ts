@@ -3,9 +3,41 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'path'
 import { root } from './env'
 
+export type ObjectImportKind = 'rimworldDefXml' | 'kspConfigNode' | 'jsonFiles'
+
+export interface GameSourceBuildConfig {
+  path?: string
+  languages?: string[]
+  extensions?: string[]
+}
+
+export interface GameObjectBuildConfig {
+  id?: string
+  model?: string
+  kind?: ObjectImportKind
+  path?: string
+  importGlob?: string
+  singularName?: string
+  pluralName?: string
+  description?: string
+  idFieldName?: string
+  typeFieldName?: string
+  displayFieldName?: string
+}
+
+export interface NormalizedGameObjectBuildConfig extends GameObjectBuildConfig {
+  id: string
+  kind: ObjectImportKind
+}
+
 export interface GameBuildConfig {
+  displayName?: string
+  description?: string
   objectsPath?: string
   sourcePath?: string
+  source?: string | GameSourceBuildConfig
+  objects?: GameObjectBuildConfig[]
+  defaultSearchGlobs?: string[]
 }
 
 export interface ProjectBuildConfig {
@@ -83,6 +115,90 @@ export function getGameBuildConfig(
   )
 
   return (matchKey ? games[matchKey] : {}) ?? {}
+}
+
+export function getGameSourceBuildConfig(
+  gameConfig: GameBuildConfig,
+): GameSourceBuildConfig {
+  const source =
+    typeof gameConfig.source === 'string'
+      ? { path: gameConfig.source }
+      : gameConfig.source ?? {}
+
+  return {
+    ...source,
+    path: source.path ?? gameConfig.sourcePath,
+  }
+}
+
+export function getGameObjectBuildConfigs(
+  gameConfig: GameBuildConfig,
+  gameId: string,
+): NormalizedGameObjectBuildConfig[] {
+  const configuredObjects = gameConfig.objects ?? []
+
+  if (configuredObjects.length > 0) {
+    return configuredObjects.map(item =>
+      normalizeObjectConfig(
+        {
+          ...item,
+          path: item.path ?? gameConfig.objectsPath,
+        },
+        gameId,
+      ),
+    )
+  }
+
+  if (gameConfig.objectsPath) {
+    return [
+      normalizeObjectConfig(
+        {
+          id: defaultObjectModelId(gameId),
+          kind: defaultObjectImportKind(gameId),
+          path: gameConfig.objectsPath,
+        },
+        gameId,
+      ),
+    ]
+  }
+
+  return []
+}
+
+export function hasConfiguredObjectPath(
+  gameConfig: GameBuildConfig,
+  gameId: string,
+): boolean {
+  return getGameObjectBuildConfigs(gameConfig, gameId).some(item =>
+    Boolean(item.path?.trim()),
+  )
+}
+
+function normalizeObjectConfig(
+  config: GameObjectBuildConfig,
+  gameId: string,
+): NormalizedGameObjectBuildConfig {
+  const id = normalizeId(config.id ?? config.model ?? defaultObjectModelId(gameId))
+
+  return {
+    ...config,
+    id,
+    model: config.model ?? id,
+    kind: config.kind ?? defaultObjectImportKind(gameId),
+    path: config.path,
+  }
+}
+
+function defaultObjectImportKind(gameId: string): ObjectImportKind {
+  return normalizeId(gameId) === 'ksp' ? 'kspConfigNode' : 'rimworldDefXml'
+}
+
+function defaultObjectModelId(gameId: string): string {
+  return normalizeId(gameId) === 'ksp' ? 'ksp_config' : 'def'
+}
+
+function normalizeId(value: string): string {
+  return value.trim().toLowerCase()
 }
 
 export async function saveGameBuildConfig(

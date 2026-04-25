@@ -4,13 +4,21 @@ import {
   getGameProfile,
   listGameProfiles,
 } from '../games'
-import { importDefObjects, indexDefObjects } from './shared/def-object-operations'
+import {
+  importConfiguredObjects,
+  indexConfiguredObjects,
+} from './shared/object-operations'
 import {
   cleanGameIndex,
   importSourceFiles,
   indexSourceSymbols,
 } from './shared/source-symbols'
 import { type GameAdapter } from './types'
+import {
+  getGameBuildConfig,
+  getGameSourceBuildConfig,
+  loadBuildConfigSync,
+} from '../utils/build-config'
 
 export type { GameAdapter }
 export type GameCommandName = keyof GameAdapter['commands']
@@ -40,13 +48,15 @@ export function supportsGameCommand(
 
   switch (commandName) {
     case 'importObjects':
-      return capabilities.hasObjectsPath
+      return capabilities.hasObjectImporter
     case 'indexObjects':
-      return capabilities.hasObjectsData || capabilities.hasObjectsPath
+      return capabilities.hasObjectImporter &&
+        (capabilities.hasObjectsData || capabilities.hasObjectsPath)
     case 'importSymbols':
-      return capabilities.hasSourcePath
+      return capabilities.hasSourceImporter
     case 'indexSymbols':
-      return capabilities.hasSourceData || capabilities.hasSourcePath
+      return capabilities.hasSourceImporter &&
+        (capabilities.hasSourceData || capabilities.hasSourcePath)
     case 'clean':
       return true
     default:
@@ -87,27 +97,40 @@ export async function runActiveGameCommandIfSupported(
   }
 
   const command = requireActiveGameCommand(commandName)
-  await command(...args)
+  await (command as (...commandArgs: string[]) => Promise<void>)(...args)
   return true
 }
 
 function createGameAdapter(gameId: string): GameAdapter {
   const profile = getGameProfile(gameId)
+  const capabilities = getGameCapabilities(profile.id)
 
   return {
     profile,
     supports: {
-      objectImport: true,
-      symbolImport: true,
-      objectIndex: true,
-      symbolIndex: true,
+      objectImport: capabilities.hasObjectImporter,
+      symbolImport: capabilities.hasSourceImporter,
+      objectIndex: capabilities.hasObjectImporter,
+      symbolIndex: capabilities.hasSourceImporter,
     },
     commands: {
-      importObjects: rootPath => importDefObjects(rootPath, profile.id),
-      importSymbols: rootPath => importSourceFiles(profile.id, rootPath),
-      indexObjects: () => indexDefObjects(profile.id),
+      importObjects: rootPath => importConfiguredObjects(profile.id, rootPath),
+      importSymbols: rootPath =>
+        importSourceFiles(profile.id, rootPath, getSourceImportOptions(profile.id)),
+      indexObjects: () => indexConfiguredObjects(profile.id),
       indexSymbols: () => indexSourceSymbols(profile.id),
       clean: () => cleanGameIndex(profile.id),
     },
+  }
+}
+
+function getSourceImportOptions(gameId: string) {
+  const { config } = loadBuildConfigSync()
+  const gameConfig = getGameBuildConfig(config, gameId)
+  const sourceConfig = getGameSourceBuildConfig(gameConfig)
+
+  return {
+    languages: sourceConfig.languages,
+    extensions: sourceConfig.extensions,
   }
 }
